@@ -1,0 +1,24 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# ---- 运行时产物（含本机数据，不要提交）----
+exports/
+.snapshot/
+config.json
+
+# ---- 项目内依赖（用户按 requirements.txt 自行安装）----
+vendor/
+
+# ---- 系统 / 编辑器 ----
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+*.swp
+*.log
+*.tmp

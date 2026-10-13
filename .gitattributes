@@ -1,0 +1,13 @@
+# 源码文本统一使用 LF，避免跨平台协作时出现混合换行
+* text=auto eol=lf
+
+# Windows 脚本必须是 CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# 二进制文件
+*.db binary
+*.png binary
+*.jpg binary
+*.webp binary
+*.zip binary

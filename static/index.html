@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sanmou 数据浏览器</title>
+<link rel="stylesheet" href="/static/style.css">
+<script>
+// 尽早应用主题，避免刷新时闪白
+(function () {
+  try {
+    var t = localStorage.getItem('sanmou-theme') || 'dark';
+    document.documentElement.setAttribute('data-theme', t);
+  } catch (e) {}
+})();
+</script>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="logo">三</span>
+    <div>
+      <h1>Sanmou 数据浏览器</h1>
+      <div class="sub" id="dbInfo">加载中…</div>
+    </div>
+  </div>
+  <div class="top-actions">
+    <span class="badge" id="modeBadge">—</span>
+    <div class="seg" id="viewSeg" title="切换数据视图">
+      <button data-view="db">数据库表</button>
+      <button data-view="battles">战报数据</button>
+    </div>
+    <div class="seg" id="themeSeg" title="切换主题">
+      <button data-theme-val="dark">深色</button>
+      <button data-theme-val="light">浅色</button>
+    </div>
+    <div class="seg" id="langSeg" title="切换字段名显示语言">
+      <button data-lang="zh">中文</button>
+      <button data-lang="en">英文</button>
+    </div>
+    <button class="btn ghost" id="btnRefreshSnap" title="重新生成数据库快照">刷新快照</button>
+    <button class="btn ghost" id="btnSettings">设置</button>
+  </div>
+</header>
+
+<div class="layout">
+  <!-- 左侧：表列表 -->
+  <aside class="sidebar">
+    <div class="side-head">
+      <input type="search" id="tableSearch" placeholder="搜索表名…" autocomplete="off">
+      <label class="chk-inline"><input type="checkbox" id="hideEmpty"> 隐藏空表</label>
+    </div>
+    <div class="table-list" id="tableList"></div>
+  </aside>
+
+  <!-- 右侧：主区 -->
+  <main class="main">
+    <!-- ============ 数据库表视图 ============ -->
+    <div id="viewDb">
+      <div class="empty-state" id="emptyState">
+        <div class="empty-icon">📊</div>
+        <h2>从左侧选择一张表开始</h2>
+        <p>浏览数据、勾选字段、按需导出为 CSV / Excel / JSON</p>
+      </div>
+
+      <div class="workspace" id="workspace" hidden>
+      <div class="ws-head">
+        <div>
+          <h2 id="tableTitle">—</h2>
+          <div class="sub" id="tableMeta"></div>
+        </div>
+        <div class="ws-actions">
+          <button class="btn ghost" id="btnColumns">字段（<span id="colCount">0</span>）</button>
+          <button class="btn ghost" id="btnFilters">筛选（<span id="filterCount">0</span>）</button>
+          <button class="btn primary" id="btnExport">导出</button>
+        </div>
+      </div>
+      <!-- 已选字段 chips -->
+      <div class="chips" id="columnChips"></div>
+
+      <!-- 筛选条件 -->
+      <div class="filters" id="filterBar" hidden></div>
+
+      <div class="table-wrap">
+        <table class="data-table" id="dataTable">
+          <thead id="thead"></thead>
+          <tbody id="tbody"></tbody>
+        </table>
+        <div class="table-msg" id="tableMsg" hidden></div>
+      </div>
+
+      <div class="pager">
+        <div class="pager-info" id="pagerInfo"></div>
+        <div class="pager-controls">
+          <button class="btn ghost sm" id="pgFirst">« 首页</button>
+          <button class="btn ghost sm" id="pgPrev">‹ 上一页</button>
+          <span class="page-input">
+            第 <input type="number" id="pgInput" min="1" value="1"> / <span id="pgTotal">1</span> 页
+          </span>
+          <button class="btn ghost sm" id="pgNext">下一页 ›</button>
+          <button class="btn ghost sm" id="pgLast">末页 »</button>
+          <select id="pgSize" class="mini-select">
+            <option value="20">20 行</option>
+            <option value="50" selected>50 行</option>
+            <option value="100">100 行</option>
+            <option value="200">200 行</option>
+            <option value="500">500 行</option>
+          </select>
+        </div>
+      </div>
+      </div>
+    </div>
+
+    <!-- ============ 战报数据视图 ============ -->
+    <div id="viewBattles" hidden>
+      <div class="ws-head">
+        <div>
+          <h2>战报数据导出</h2>
+          <div class="sub">
+            把 Sanmou 抓取到的战报转成 <b>alliance-counter</b> 可直接加载的数据文件
+          </div>
+        </div>
+        <div class="ws-actions">
+          <button class="btn ghost" id="btnRescan">重新扫描</button>
+        </div>
+      </div>
+
+      <div class="panel-note">
+        <b>数据从哪来？</b>
+        Sanmou 抓包时会自动写入本机，本页帮你找到并转换，
+        <b>不需要手动翻目录</b>。若列表为空，请先在 Sanmou 里完成一次战报抓取。
+      </div>
+
+      <!-- 数据源列表 -->
+      <div class="battle-section">
+        <div class="sec-title">
+          可用的数据源 <span class="cnt" id="srcCount">0</span>
+          <label class="chk-inline" style="margin-left:auto">
+            <input type="checkbox" id="onlyPersist" checked> 只看汇总来源
+          </label>
+        </div>
+        <div class="src-list" id="srcList"></div>
+        <div class="hint" style="margin-top:10px">
+          「合并全部来源」会把累计数据与所有单次捕获合并去重，
+          结果与 Sanmou 界面显示的记录数一致（只读累计会少算）。
+        </div>
+      </div>
+
+      <!-- 导出设置 -->
+      <div class="battle-section" id="exportPanel" hidden>
+        <div class="sec-title">导出设置</div>
+        <div class="export-grid">
+          <div class="field">
+            <label>输出格式</label>
+            <select id="bfFormat">
+              <option value="js">.js —— 给 alliance-counter 用（推荐）</option>
+              <option value="json">.json —— 通用 JSON</option>
+              <option value="jsonl">.jsonl —— 每行一条</option>
+            </select>
+            <div class="hint">
+              alliance-counter 是纯静态页面，<b>必须用 .js</b>：
+              双击打开时 <code>fetch</code> 会被浏览器拦截，而 <code>&lt;script src&gt;</code> 不会。
+            </div>
+          </div>
+          <div class="field">
+            <label>数据处理</label>
+            <label class="chk-inline"><input type="checkbox" id="bfAnon"> 脱敏（玩家名/同盟名替换为假名）</label>
+            <label class="chk-inline"><input type="checkbox" id="bfChild" checked> 保留续战段（child）</label>
+            <div class="hint">
+              alliance-counter 统计时会自动按 <code>recordType</code> 过滤，
+              保留 child 可让明细更完整。
+            </div>
+          </div>
+        </div>
+
+        <div class="export-actions">
+          <button class="btn ghost" id="btnPreview">预览统计</button>
+          <button class="btn primary" id="btnDoExport">导出数据文件</button>
+          <span class="foot-hint" id="bfHint"></span>
+        </div>
+
+        <div class="stat-box" id="statBox" hidden></div>
+        <div class="export-result" id="bfResult" hidden></div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- ============ 字段选择抽屉 ============ -->
+<div class="drawer-mask" id="maskColumns" hidden></div>
+<section class="drawer" id="drawerColumns" hidden>
+  <div class="drawer-head">
+    <h3>选择字段</h3>
+    <button class="icon-btn" data-close="drawerColumns">✕</button>
+  </div>
+  <div class="drawer-tools">
+    <input type="search" id="colSearch" placeholder="搜索字段…">
+    <button class="btn ghost sm" id="colAll">全选</button>
+    <button class="btn ghost sm" id="colNone">全不选</button>
+    <button class="btn ghost sm" id="colInvert">反选</button>
+  </div>
+  <div class="col-list" id="colList"></div>
+  <div class="drawer-foot">
+    <span class="foot-hint" id="colFootHint">勾选要显示的字段</span>
+    <button class="btn primary" id="applyColumns">应用</button>
+  </div>
+</section>
+
+<!-- ============ 筛选抽屉 ============ -->
+<div class="drawer-mask" id="maskFilters" hidden></div>
+<section class="drawer" id="drawerFilters" hidden>
+  <div class="drawer-head">
+    <h3>筛选条件</h3>
+    <button class="icon-btn" data-close="drawerFilters">✕</button>
+  </div>
+  <div class="drawer-body">
+    <div id="filterRows" class="filter-rows"></div>
+    <button class="btn ghost sm" id="addFilter">+ 添加条件</button>
+    <div class="hint">多个条件之间为「并且」关系</div>
+  </div>
+  <div class="drawer-foot">
+    <button class="btn ghost" id="clearFilters">清空</button>
+    <button class="btn primary" id="applyFilters">应用筛选</button>
+  </div>
+</section>
+
+<!-- ============ 导出对话框 ============ -->
+<div class="modal-mask" id="maskExport" hidden></div>
+<section class="modal" id="modalExport" hidden>
+  <div class="modal-head">
+    <h3>导出数据</h3>
+    <button class="icon-btn" data-close="modalExport">✕</button>
+  </div>
+  <div class="modal-body">
+    <div class="field">
+      <label>导出范围</label>
+      <div class="radio-row">
+        <label><input type="radio" name="scope" value="selected" checked> 当前选中字段</label>
+        <label><input type="radio" name="scope" value="all"> 全部字段</label>
+      </div>
+      <div class="hint" id="exportColHint"></div>
+    </div>
+    <div class="field">
+      <label>导出条数</label>
+      <div class="radio-row">
+        <label><input type="radio" name="rows" value="filtered" checked> 全部筛选结果</label>
+        <label><input type="radio" name="rows" value="page"> 仅当前页</label>
+      </div>
+      <div class="hint" id="exportRowHint"></div>
+    </div>
+    <div class="field">
+      <label>文件格式</label>
+      <select id="exportFormat">
+        <option value="csv">CSV（Excel 可直接打开，含中文 BOM）</option>
+        <option value="xlsx">Excel (.xlsx)</option>
+        <option value="json">JSON（数组）</option>
+        <option value="jsonl">JSON Lines（每行一条）</option>
+      </select>
+    </div>
+    <div class="field" id="headerLangField">
+      <label>表头语言</label>
+      <div class="radio-row">
+        <label><input type="radio" name="hlang" value="zh" checked> 中文（如「周武勋」）</label>
+        <label><input type="radio" name="hlang" value="en"> 英文（如「weekly_merit」）</label>
+      </div>
+      <label class="chk-inline" style="margin-top:8px">
+        <input type="checkbox" id="translateEnums" checked> 把 win/loss 等取值也翻译成中文
+      </label>
+      <div class="hint">JSON 格式始终使用原始英文字段名，便于程序处理</div>
+    </div>
+    <div class="field">
+      <label>限制最大行数（0 = 不限制）</label>
+      <input type="number" id="exportMaxRows" min="0" value="0">
+    </div>
+    <details class="preview-box">
+      <summary>预览前 20 行</summary>
+      <pre id="exportPreview">点击展开以生成预览…</pre>
+    </details>
+    <div class="export-result" id="exportResult" hidden></div>
+  </div>
+  <div class="modal-foot">
+    <button class="btn ghost" id="btnPreview">预览</button>
+    <button class="btn primary" id="btnDoExport">开始导出</button>
+  </div>
+</section>
+
+<!-- ============ 设置对话框 ============ -->
+<div class="modal-mask" id="maskSettings" hidden></div>
+<section class="modal" id="modalSettings" hidden>
+  <div class="modal-head">
+    <h3>设置</h3>
+    <button class="icon-btn" data-close="modalSettings">✕</button>
+  </div>
+  <div class="modal-body">
+    <div class="field">
+      <label>数据库文件路径</label>
+      <input type="text" id="setDbPath" spellcheck="false">
+      <div class="hint">Sanmou 的 SQLite 数据库位置</div>
+    </div>
+    <div class="field">
+      <label class="chk-inline"><input type="checkbox" id="setPreferLive"> 优先直连源库（只读）</label>
+      <div class="hint">关闭后始终读取快照副本，适合程序占用数据库时使用</div>
+    </div>
+    <div class="field">
+      <label>默认每页行数</label>
+      <input type="number" id="setPageSize" min="1" max="500">
+    </div>
+    <div class="field">
+      <label>默认导出行数上限（0 = 不限制）</label>
+      <input type="number" id="setMaxRows" min="0">
+    </div>
+  </div>
+  <div class="modal-foot">
+    <button class="btn ghost" data-close="modalSettings">取消</button>
+    <button class="btn primary" id="btnSaveSettings">保存</button>
+  </div>
+</section>
+
+<!-- ============ 导出文件列表 ============ -->
+<div class="modal-mask" id="maskFiles" hidden></div>
+<section class="modal" id="modalFiles" hidden>
+  <div class="modal-head">
+    <h3>已导出文件</h3>
+    <button class="icon-btn" data-close="modalFiles">✕</button>
+  </div>
+  <div class="modal-body">
+    <div id="fileList" class="file-list"></div>
+  </div>
+</section>
+
+<div class="toast" id="toast" hidden></div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
