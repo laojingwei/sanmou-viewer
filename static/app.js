@@ -517,7 +517,7 @@ async function doExport() {
   const maxRows = parseInt($('#exportMaxRows').value || '0', 10) || 0;
   const p = exportParams();
 
-  const btn = $('#btnDoExport');
+  const btn = $('#btnTableExport');
   btn.disabled = true;
   const old = btn.textContent;
   btn.innerHTML = '<span class="spinner"></span>导出中…';
@@ -1063,8 +1063,8 @@ function bindEvents() {
     $('#exportPreview').textContent = '点击「预览」生成…';
     openOverlay('maskExport', true); openOverlay('modalExport', true);
   });
-  $('#btnPreview').addEventListener('click', previewExport);
-  $('#btnDoExport').addEventListener('click', doExport);
+  $('#btnTablePreview').addEventListener('click', previewExport);
+  $('#btnTableExport').addEventListener('click', doExport);
   // JSON 格式下隐藏表头语言选项（JSON 始终用英文键名）
   $('#exportFormat').addEventListener('change', (e) => {
     const isJson = e.target.value === 'json' || e.target.value === 'jsonl';
