@@ -29,6 +29,7 @@
     <div class="seg" id="viewSeg" title="切换数据视图">
       <button data-view="db">数据库表</button>
       <button data-view="battles">战报数据</button>
+      <button data-view="reports">战斗详情</button>
     </div>
     <div class="seg" id="themeSeg" title="切换主题">
       <button data-theme-val="dark">深色</button>
@@ -183,6 +184,114 @@
         <div class="export-result" id="bfResult" hidden></div>
       </div>
     </div>
+
+    <!-- ============ 战斗详情视图（回合明细） ============ -->
+    <div id="viewReports" hidden>
+      <div id="reportsListPane">
+        <div class="ws-head">
+          <div>
+            <h2>战斗详情（回合明细）</h2>
+            <div class="sub">
+              数据来自 Sanmou 抓到的 <b>1008 全量战报</b>——在游戏里<b>点开看过详情</b>的战斗才会有回合过程
+            </div>
+          </div>
+          <div class="ws-actions">
+            <button class="btn ghost" id="btnReportsRescan">重新扫描</button>
+          </div>
+        </div>
+
+        <div class="panel-note">
+          每份报告包含完整的事件流水：列队布阵、行动顺序、补给/阵型、
+          增减益、战法发动、逐次伤害与治疗——与游戏内战报「详情」页逐行对应。
+          点任意一场查看回合过程。
+        </div>
+
+        <div class="battle-section">
+          <div class="sec-title">
+            有回合明细的战斗 <span class="cnt" id="repCount">0</span>
+            <input type="search" id="repSearch" placeholder="按玩家名 / 战斗ID 过滤…"
+                   style="margin-left:auto;width:240px">
+          </div>
+          <div class="src-list" id="repList"></div>
+        </div>
+      </div>
+
+      <div id="reportsDetailPane" hidden>
+        <div class="ws-head">
+          <div>
+            <h2 id="repDetailTitle">战斗详情</h2>
+            <div class="sub" id="repDetailMeta"></div>
+          </div>
+          <div class="ws-actions">
+            <button class="btn ghost" id="btnRepBack">← 返回列表</button>
+          </div>
+        </div>
+
+        <div class="stat-box" id="repStatBox"></div>
+
+        <div class="rep-layout">
+          <div class="rep-side" id="repAtkSide"></div>
+          <div class="rep-side" id="repDefSide"></div>
+        </div>
+
+        <!-- 战斗回放（动画优先，放在事件流水之前） -->
+        <div class="battle-section" id="repPlaybackSection" hidden>
+          <div class="sec-title">
+            战斗回放
+            <span class="cnt" id="repPbRound">—</span>
+            <label class="chk-inline" style="margin-left:auto">
+              <input type="checkbox" id="pbSound" checked> 音效
+            </label>
+            <label class="chk-inline">
+              <input type="checkbox" id="repFollowPb" checked> 事件流水跟随
+            </label>
+          </div>
+          <div class="pb-stage-wrap">
+            <canvas id="pbStage" width="960" height="420"></canvas>
+            <div class="pb-order" id="pbOrder"></div>
+            <div class="pb-caption" id="pbCaption" hidden></div>
+            <div class="pb-banner" id="pbBanner" hidden></div>
+            <div class="pb-feed" id="pbFeed"></div>
+          </div>
+          <div class="pb-controls">
+            <button class="btn primary sm" id="pbPlay">▶ 播放</button>
+            <button class="btn ghost sm" id="pbSkipFwd">下一幕 ⏭</button>
+            <label class="pb-speed">速度
+              <select id="pbSpeed" class="mini-select">
+                <option value="0.5">0.5×</option>
+                <option value="1" selected>1×</option>
+                <option value="1.6">1.6×</option>
+                <option value="3">3×</option>
+                <option value="5">5×</option>
+              </select>
+            </label>
+            <label class="pb-speed">回合
+              <select id="pbRoundSel" class="mini-select"><option value="0">布阵阶段</option></select>
+            </label>
+            <label class="chk-inline" title="一个回合播完后自动接着播下一个回合">
+              <input type="checkbox" id="pbAutoNext" checked> 自动连播
+            </label>
+            <input type="range" id="pbProgress" min="0" max="100" value="0" style="flex:1">
+            <span class="pb-pos" id="pbPos">0 / 0</span>
+          </div>
+          <div class="hint" style="margin-top:6px">
+            演出严格按战斗流程逐步进行、不做任何压缩：每一步（移动、施法、每一次攻击、每一条状态变化）都独立呈现。
+            特效从真实施法者身上发出——敌方反击或第三方触发时，会以青色标记指出真正出手的人。
+            武将头顶血条为「剩余兵力 / 伤兵 / 阵亡」三段；状态会一直挂在身上，直到数据里出现「效果已消失」或被清除。
+          </div>
+        </div>
+
+        <div class="battle-section" id="repEventsSection">
+          <div class="sec-title">
+            事件流水 <span class="cnt" id="repEvCount">0</span>
+            <label class="chk-inline" style="margin-left:auto">
+              回合 <select id="repRoundFilter" class="mini-select"><option value="">全部</option></select>
+            </label>
+          </div>
+          <div class="rep-events" id="repEvents"></div>
+        </div>
+      </div>
+    </div>
   </main>
 </div>
 
@@ -330,6 +439,7 @@
 
 <div class="toast" id="toast" hidden></div>
 
+<script src="/static/battle_anim.js"></script>
 <script src="/static/app.js"></script>
 </body>
 </html>

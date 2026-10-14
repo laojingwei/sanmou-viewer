@@ -22,6 +22,9 @@ const state = {
   battleSources: [],
   battleSource: null,               // 选中的源（路径）
   battleSourceInfo: null,           // 选中的源（完整信息，含 merge 标记）
+  reports: [],                      // 有回合明细的战斗（列表）
+  reportDetail: null,               // 当前打开的报告（详情）
+  repShowAll: false,                // 事件流是否展开全部
   dict: { tables: {}, columns: {}, overrides: {}, enums: {}, enum_scope: {} },
 };
 
@@ -659,6 +662,7 @@ function setView(view) {
   $$('#viewSeg button').forEach(b => b.classList.toggle('on', b.dataset.view === view));
   $('#viewDb').hidden = view !== 'db';
   $('#viewBattles').hidden = view !== 'battles';
+  $('#viewReports').hidden = view !== 'reports';
   // 侧边栏只属于数据库视图
   const sb = $('.sidebar');
   if (sb) sb.style.display = view === 'db' ? '' : 'none';
@@ -670,6 +674,7 @@ function setView(view) {
   });
   try { localStorage.setItem('sanmou-view', view); } catch (e) {}
   if (view === 'battles' && !state.battleSources.length) loadBattleSources();
+  if (view === 'reports' && !state.reports.length) loadReports();
 }
 
 async function loadBattleSources() {
@@ -824,6 +829,258 @@ async function doBattleExport() {
   }
 }
 
+/* ------------------------------------------------------------------ 战斗详情（回合明细） */
+
+async function loadReports() {
+  const box = $('#repList');
+  box.innerHTML = '<div style="padding:18px;text-align:center;color:var(--muted);font-size:12px">'
+    + '<span class="spinner"></span>扫描中…</div>';
+  try {
+    const res = await api('/api/battle_reports');
+    state.reports = res.reports || [];
+    renderReports();
+  } catch (e) {
+    box.innerHTML = `<div style="padding:16px;color:var(--err);font-size:12px">${escapeHtml(e.message)}</div>`;
+  }
+}
+
+function filteredReports() {
+  const kw = ($('#repSearch').value || '').trim().toLowerCase();
+  if (!kw) return state.reports;
+  return state.reports.filter(r =>
+    (r.id || '').toLowerCase().includes(kw)
+    || (r.capture || '').toLowerCase().includes(kw)
+  );
+}
+
+function renderReports() {
+  const box = $('#repList');
+  const items = filteredReports();
+  $('#repCount').textContent = items.length;
+
+  if (!items.length) {
+    box.innerHTML = `<div style="padding:18px;color:var(--muted);font-size:13px;line-height:1.8">
+      还没有可用的回合明细。<br>
+      1008 战报是<b>按需抓取</b>的——只有当客户端在游戏里点开某场战斗的详情时才会被记录。<br>
+      先在游戏里打开几场战报的「详情」，再回这里点「重新扫描」。</div>`;
+    return;
+  }
+
+  box.innerHTML = items.map((r, i) => `
+    <label class="src-item rep-item" data-rid="${escapeAttr(r.id)}" data-idx="${i}">
+      <span class="smain">
+        <span class="slabel">📋 ${escapeHtml(r.id.replace('_eventDataList', ''))}</span>
+        <span class="spath" title="${escapeAttr(r.report_json || r.parsed_events || '')}">
+          ${escapeHtml(r.workspace)} / ${escapeHtml(r.capture)}
+          ${r.report_json ? '' : ' · <b>仅原始抓包</b>'}
+        </span>
+      </span>
+      <span class="smeta">${escapeHtml((r.capture || '').replace('capture_', ''))}</span>
+    </label>`).join('');
+}
+
+function sideHtml(side, title) {
+  const heroes = (side.heroes || []).map(h => `
+    <div class="rep-hero">
+      <span class="rh-name">${escapeHtml(h.name)}</span>
+      <span class="rh-meta">红${h.red ?? '?'} · Lv.${h.level ?? '?'} · ${escapeHtml(h.arms || '—')}</span>
+      <span class="rh-troops">兵力 ${fmtNum(h.troops)}${h.origin ? ' / ' + fmtNum(h.origin) : ''}</span>
+      ${h.skills && h.skills.length ? `<span class="rh-skills" title="${escapeAttr(h.skills.join('、'))}">${escapeHtml(h.skills.join('、'))}</span>` : ''}
+    </div>`).join('');
+  return `
+    <div class="rep-side-box">
+      <div class="rep-side-head">
+        <span class="rs-title">${escapeHtml(title)}</span>
+        <span class="rs-player">${escapeHtml(side.player || '—')}${side.alliance ? ' · ' + escapeHtml(side.alliance) : ''}</span>
+        ${side.win ? '<span class="badge live">胜</span>' : '<span class="badge error">负</span>'}
+      </div>
+      <div class="rep-side-sub">
+        ${side.formation ? '阵型 ' + escapeHtml(side.formation) : ''}${side.morale != null ? ' · 士气 ' + escapeHtml(String(side.morale)) : ''}
+      </div>
+      ${heroes || '<div class="hint">无武将信息</div>'}
+    </div>`;
+}
+
+function renderReportDetail(d) {
+  $('#reportsListPane').hidden = true;
+  $('#reportsDetailPane').hidden = false;
+
+  const b = d.battle || {};
+  const atk = b.attacker || {}, def = b.defender || {};
+  $('#repDetailTitle').textContent =
+    [atk.player || '攻方', 'vs', def.player || '守方'].join(' ');
+  const s = d.summary || {};
+  $('#repDetailMeta').textContent =
+    `战斗ID ${b.battleId || d.id} · ${s.round_count ?? '?'} 回合 · 事件 ${d.events_total ?? (d.events || []).length} 条`
+    + (b.location ? ` · 位置 ${b.location}` : '');
+
+  $('#repStatBox').hidden = false;
+  const et = s.event_types || [];
+  const topTypes = et.slice(0, 6).map(([id, n]) =>
+    `<span class="stat-item"><span class="k">事件 ${id}</span><span class="v">${fmtNum(n)}</span></div>`
+  ).join('');
+  $('#repStatBox').innerHTML = `
+    <div class="stat-grid">
+      <div class="stat-item"><span class="k">回合数</span><span class="v ok">${fmtNum(s.round_count)}</span></div>
+      <div class="stat-item"><span class="k">事件总数</span><span class="v">${fmtNum(s.event_count ?? d.events_total)}</span></div>
+      <div class="stat-item"><span class="k">伤害事件</span><span class="v">${fmtNum(s.damage_events)}</span></div>
+      <div class="stat-item"><span class="k">治疗事件</span><span class="v">${fmtNum(s.heal_events)}</span></div>
+    </div>
+    ${topTypes ? `<div class="stat-grid" style="margin-top:8px">${topTypes}</div>` : ''}`;
+
+  $('#repAtkSide').innerHTML = sideHtml(atk, '攻方');
+  $('#repDefSide').innerHTML = sideHtml(def, '守方');
+
+  // 回合下拉
+  const rounds = [...new Set((d.events || []).map(e => e.round).filter(r => r != null))].sort((a, b) => a - b);
+  $('#repRoundFilter').innerHTML = '<option value="">全部</option>'
+    + rounds.map(r => `<option value="${r}">第 ${r} 回合</option>`).join('');
+  $('#repRoundFilter').value = '';
+  state.repShowAll = false;
+
+  renderRepEvents();
+  openPlayback();
+}
+
+function renderRepEvents() {
+  const d = state.reportDetail;
+  if (!d) return;
+  const sel = $('#repRoundFilter').value;
+  let events = d.events || [];
+  if (sel !== '') events = events.filter(e => String(e.round) === sel);
+
+  const box = $('#repEvents');
+  $('#repEvCount').textContent = `${events.length}${d.events_truncated ? ' / ' + d.events_total : ''}`;
+
+  if (!events.length) {
+    box.innerHTML = '<div class="hint" style="padding:12px">没有匹配的事件</div>';
+    return;
+  }
+
+  // 大事件流分批渲染：先显示 500 条，点「展开全部」再全量
+  const LIMIT = 500;
+  const limited = events.length > LIMIT && !state.repShowAll;
+  const shown = limited ? events.slice(0, LIMIT) : events;
+
+  const CLS = {
+    208: 'ev-loss', 218: 'ev-dmg', 215: 'ev-heal', 212: 'ev-skill',
+    214: 'ev-cast', 211: 'ev-atk', 247: 'ev-buff', 248: 'ev-debuff',
+    213: 'ev-attr', 50: 'ev-info', 52: 'ev-info', 56: 'ev-info', 100: 'ev-info', 0: 'ev-info',
+  };
+  let html = shown.map(e => {
+    let desc = e.desc;
+    // 去掉游戏内富文本标记（若后端未清理）
+    if (desc && desc.includes('<')) desc = desc.replace(/<[^>]+>/g, '');
+    const rTag = e.round != null && e.round > 0 ? `<span class="ev-round">R${e.round}</span>` : '';
+    const troop = e.change != null && e.change !== ''
+      ? `<span class="ev-troop">${e.change > 0 ? '+' : ''}${fmtNum(Number(e.change))}${e.result != null && e.result !== '' ? ' → ' + fmtNum(Number(e.result)) : ''}</span>`
+      : '';
+    const meta = e.eventName ? `<span class="ev-name">${escapeHtml(e.eventName)}</span>` : '';
+    return `<div class="rep-ev ${CLS[e.eventId] || ''}">
+      <span class="ev-seq">${String(e.seq ?? '').padStart(4, '0')}</span>
+      ${rTag}${meta}
+      <span class="ev-desc">${escapeHtml(desc || '')}</span>${troop}
+    </div>`;
+  }).join('');
+  if (limited) {
+    html += `<div class="rep-ev-more">已显示前 ${LIMIT} 条（共 ${events.length} 条）
+      <button class="btn ghost sm" id="btnRepShowAll">展开全部</button></div>`;
+  }
+  box.innerHTML = html;
+  const moreBtn = $('#btnRepShowAll');
+  if (moreBtn) moreBtn.addEventListener('click', () => {
+    state.repShowAll = true;
+    renderRepEvents();
+  });
+}
+
+/* ------------------------------------------------ 回放动画（BattleAnim 引擎） */
+
+/** 事件流水跟随高亮：按序号定位到流水行
+ *  注意：这里**只滚动事件流水容器自身**，绝不使用 scrollIntoView——
+ *  后者会连带滚动整个页面，导致播放时页面乱跳。 */
+function pbHighlightEvent(seq) {
+  const box = $('#repEvents');
+  if (!box || seq == null) return;
+  const want = String(seq).padStart(4, '0');
+  const rows = box.querySelectorAll('.rep-ev');
+  for (const row of rows) {
+    const t = (row.querySelector('.ev-seq') || {}).textContent;
+    if (t && String(t).trim().padStart(4, '0') === want) {
+      rows.forEach((r) => r.classList.remove('ev-follow'));
+      row.classList.add('ev-follow');
+      // 用 rect 差值算出目标 scrollTop：只影响容器内部滚动位置
+      const boxRect = box.getBoundingClientRect();
+      const rowRect = row.getBoundingClientRect();
+      const delta = rowRect.top - boxRect.top;
+      const target = box.scrollTop + delta - box.clientHeight / 2 + rowRect.height / 2;
+      box.scrollTop = Math.max(0, target);
+      return;
+    }
+  }
+}
+
+/** 打开回放：把当前报告交给演出引擎 */
+function openPlayback() {
+  const d = state.reportDetail;
+  if (!d || !d.roster || typeof BattleAnim === 'undefined') return;
+  $('#repPlaybackSection').hidden = false;
+  BattleAnim.onHighlight = pbHighlightEvent;
+  // 面板开关状态同步给引擎（自动连播默认勾选）
+  const chkAuto = $('#pbAutoNext');
+  if (chkAuto) BattleAnim.setAutoNext(chkAuto.checked);
+  const chkSound = $('#pbSound');
+  if (chkSound) BattleAnim.setSound(chkSound.checked);
+  BattleAnim.open(d);
+}
+
+function stopPlayback() { if (typeof BattleAnim !== 'undefined') BattleAnim.stop(); }
+function pbToggle() { BattleAnim.toggle(); }
+function pbStepOnce(dir) { BattleAnim.stepOnce(dir); }
+function pbSeekPercent(pct) { BattleAnim.seek(pct); }
+function pbSetSpeed(v) { BattleAnim.setSpeed(v); }
+function pbSetRound(r) { BattleAnim.setRound(r); }
+function pbSetAutoNext(on) { BattleAnim.setAutoNext(on); }
+
+
+async function openReport(rid) {
+  const box = $('#repEvents');
+  $('#reportsListPane').hidden = true;
+  $('#reportsDetailPane').hidden = false;
+  $('#repDetailTitle').textContent = rid.replace('_eventDataList', '');
+  $('#repDetailMeta').textContent = '加载中…';
+  $('#repStatBox').hidden = true;
+  $('#repAtkSide').innerHTML = '';
+  $('#repDefSide').innerHTML = '';
+  box.innerHTML = '<div style="padding:20px;text-align:center;color:var(--muted);font-size:12px">'
+    + '<span class="spinner"></span>读取报告…</div>';
+  try {
+    const d = await api('/api/battle_reports/detail', {
+      method: 'POST',
+      body: JSON.stringify({ id: rid }),
+    });
+    state.reportDetail = d;
+    renderReportDetail(d);
+    // 内容渲染会改变页面高度（动画面板展开等），浏览器可能把视口顶到别处；
+    // 这里显式把视口对齐到报告详情顶部，保证用户看到的是报告开头。
+    requestAnimationFrame(() => {
+      const pane = $('#reportsDetailPane');
+      if (!pane) return;
+      const top = pane.getBoundingClientRect().top + window.scrollY - 8;
+      window.scrollTo(0, Math.max(0, top));
+    });
+  } catch (e) {
+    box.innerHTML = `<div style="color:var(--err)">${escapeHtml(e.message)}</div>`;
+  }
+}
+
+function backToReports() {
+  $('#reportsDetailPane').hidden = true;
+  $('#reportsListPane').hidden = false;
+  state.reportDetail = null;
+  stopPlayback();
+}
+
 /* ------------------------------------------------------------------ 事件 */
 
 function bindEvents() {
@@ -863,6 +1120,36 @@ function bindEvents() {
   });
   $('#btnPreview').addEventListener('click', previewBattles);
   $('#btnDoExport').addEventListener('click', doBattleExport);
+
+  // 战斗详情
+  $('#repList').addEventListener('click', (e) => {
+    const item = e.target.closest('.rep-item');
+    if (item) openReport(item.dataset.rid);
+  });
+  $('#repSearch').addEventListener('input', renderReports);
+  $('#btnReportsRescan').addEventListener('click', async () => {
+    const b = $('#btnReportsRescan');
+    b.disabled = true; b.textContent = '扫描中…';
+    state.reports = [];
+    await loadReports();
+    b.disabled = false; b.textContent = '重新扫描';
+  });
+  $('#btnRepBack').addEventListener('click', backToReports);
+  $('#repRoundFilter').addEventListener('change', () => {
+    state.repShowAll = false;   // 切换回合后重新分批
+    renderRepEvents();
+  });
+
+  // 回放控制（全部转发给 BattleAnim 演出引擎）
+  $('#pbPlay').addEventListener('click', pbToggle);
+  $('#pbSkipFwd').addEventListener('click', () => pbStepOnce(1));
+  $('#pbSpeed').addEventListener('change', (e) => pbSetSpeed(parseFloat(e.target.value) || 1));
+  $('#pbRoundSel').addEventListener('change', (e) => pbSetRound(parseInt(e.target.value, 10) || 0));
+  $('#pbProgress').addEventListener('input', (e) => pbSeekPercent(parseInt(e.target.value, 10) || 0));
+  $('#pbAutoNext').addEventListener('change', (e) => pbSetAutoNext(e.target.checked));
+  $('#pbSound').addEventListener('change', (e) => BattleAnim.setSound(e.target.checked));
+  // 播放按钮是用户手势：顺手初始化音频上下文（浏览器自动播放策略）
+  $('#pbPlay').addEventListener('mousedown', () => BattleAnim.unlockAudio(), { once: false });
 
   // 主题 / 语言
   $('#themeSeg').addEventListener('click', (e) => {

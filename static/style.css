@@ -584,6 +584,177 @@ html, body {
 .file-row .fname { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .file-row .fmeta { color: var(--muted); font-size: 11px; flex: none; }
 
+/* ---------------- 战斗详情（回合明细） ---------------- */
+.rep-layout {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+  margin-bottom: 14px;
+}
+@media (max-width: 900px) { .rep-layout { grid-template-columns: 1fr; } }
+.rep-side-box {
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 12px 14px;
+}
+.rep-side-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.rep-side-head .rs-title {
+  font-weight: 700; font-size: 12px; color: var(--muted);
+  background: var(--accent-soft); border: 1px solid var(--accent-border);
+  padding: 1px 8px; border-radius: 20px;
+}
+.rep-side-head .rs-player { font-weight: 600; font-size: 14px; }
+.rep-side-sub { color: var(--muted); font-size: 12px; margin: 4px 0 8px; }
+.rep-hero {
+  display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
+  padding: 5px 0; border-top: 1px dashed var(--border);
+  font-size: 12px;
+}
+.rep-hero .rh-name { font-weight: 600; font-size: 13px; }
+.rep-hero .rh-meta { color: var(--muted); }
+.rep-hero .rh-troops { color: var(--text-dim); }
+.rep-hero .rh-skills {
+  width: 100%; color: var(--muted); font-size: 11px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+.rep-events {
+  display: flex; flex-direction: column;
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: var(--radius);
+  max-height: 55vh; overflow-y: auto;
+}
+.rep-ev {
+  display: flex; align-items: baseline; gap: 8px;
+  padding: 3px 10px; font-size: 12.5px; line-height: 1.65;
+  border-bottom: 1px solid var(--border);
+}
+.rep-ev:nth-child(even) { background: var(--row-alt); }
+.rep-ev:last-child { border-bottom: none; }
+.rep-ev .ev-seq { color: var(--muted); font-size: 10.5px; flex: none; width: 34px; }
+.rep-ev .ev-round {
+  flex: none; font-size: 10.5px; color: var(--accent);
+  background: var(--accent-soft); border: 1px solid var(--accent-border);
+  border-radius: 10px; padding: 0 6px;
+}
+.rep-ev .ev-name {
+  flex: none; font-size: 10.5px; color: var(--muted);
+  border: 1px solid var(--border-strong); border-radius: 10px;
+  padding: 0 6px;
+}
+.rep-ev .ev-desc { flex: 1; min-width: 0; word-break: break-all; }
+.rep-ev .ev-troop { flex: none; color: var(--text-dim); font-weight: 600; }
+.rep-ev.ev-loss .ev-desc, .rep-ev.ev-dmg .ev-desc { color: var(--err); }
+.rep-ev.ev-heal .ev-desc { color: var(--ok); }
+.rep-ev.ev-skill .ev-desc, .rep-ev.ev-cast .ev-desc { color: var(--warn); }
+.rep-ev.ev-buff .ev-desc { color: var(--ok); }
+.rep-ev.ev-debuff .ev-desc { color: var(--err); }
+.rep-ev-more {
+  padding: 10px; text-align: center; color: var(--muted); font-size: 12px;
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+}
+
+/* ---------------- 战斗回放动画 ---------------- */
+/* 播放时画布/字幕频繁变化，禁止浏览器的滚动锚定，否则页面会被"顶"到别处 */
+.pb-stage-wrap, .pb-controls, .pb-feed, .pb-order, .pb-caption, .pb-banner,
+.battle-section { overflow-anchor: none; }
+.pb-stage-wrap {
+  position: relative; border-radius: var(--radius); overflow: hidden;
+  border: 1px solid var(--border); background: #171a20;
+}
+.pb-stage-wrap canvas { display: block; width: 100%; height: auto; }
+
+/* 底部滚动战报条（模仿游戏内） */
+.pb-feed {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  padding: 6px 12px 8px;
+  background: linear-gradient(transparent, rgba(8,10,14,.88) 45%);
+  pointer-events: none;
+  display: flex; flex-direction: column; gap: 2px;
+}
+.pb-feed-line {
+  display: flex; gap: 6px; align-items: baseline;
+  font-size: 12px; line-height: 1.55;
+  text-shadow: 0 1px 3px rgba(0,0,0,.9);
+  overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+}
+.pb-feed-line .pf-arrow { flex: none; font-size: 10px; }
+.pb-feed-line .pf-text { overflow: hidden; text-overflow: ellipsis; }
+.pb-feed-line.feed-dmg .pf-text { color: #ff8a8a; }
+.pb-feed-line.feed-heal .pf-text { color: #7ee8a4; }
+.pb-feed-line.feed-cast .pf-text { color: #ffd76b; }
+.pb-feed-line.feed-info .pf-text { color: #cfd4db; }
+.pb-feed-line:nth-last-child(n+4) { opacity: .55; }   /* 旧的淡出 */
+
+/* 行动顺序侧栏（仿游戏内左侧行动条） */
+.pb-order {
+  position: absolute; left: 10px; top: 64px;
+  display: flex; flex-direction: column; gap: 5px;
+  pointer-events: none;
+}
+.pb-order-item {
+  display: flex; align-items: center; gap: 6px;
+  padding: 3px 8px 3px 4px;
+  background: rgba(10,12,16,.72);
+  border: 1px solid rgba(255,255,255,.14);
+  border-radius: 20px;
+  font-size: 11px; color: #dfe3e9;
+  opacity: .55;
+  transition: all .25s;
+}
+.pb-order-item img {
+  width: 22px; height: 22px; border-radius: 50%;
+  object-fit: cover;
+  border: 1.5px solid rgba(255,255,255,.25);
+}
+.pb-order-item.cur {
+  opacity: 1;
+  border-color: #ffd76b;
+  box-shadow: 0 0 10px rgba(255,215,107,.35);
+  transform: scale(1.08);
+}
+.pb-order-item.done { opacity: .22; }
+.pb-order-item.side-atk img { border-color: #4d8dff; }
+.pb-order-item.side-def img { border-color: #f87171; }
+
+/* 当前动作字幕（舞台下方中央，位于战报条之上） */
+.pb-caption {
+  position: absolute; left: 50%; bottom: 104px; transform: translateX(-50%);
+  background: rgba(10,12,16,.85);
+  border: 1px solid rgba(255,215,107,.45);
+  border-radius: 8px;
+  padding: 5px 15px;
+  font-size: 13px; font-weight: 700; color: #ffd76b;
+  text-shadow: 0 1px 3px rgba(0,0,0,.9);
+  white-space: nowrap; pointer-events: none;
+  max-width: 78%;
+  overflow: hidden; text-overflow: ellipsis;
+}
+.pb-cap-anim { animation: pbCapIn .26s ease-out; }
+@keyframes pbCapIn {
+  from { opacity: 0; transform: translateX(-50%) translateY(7px) scale(.97); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+}
+.pb-banner {
+  position: absolute; top: 42%; left: 50%; transform: translate(-50%, -50%);
+  font-size: 30px; font-weight: 800; color: #ffd76b;
+  text-shadow: 0 2px 14px rgba(0,0,0,.85), 0 0 30px rgba(255,215,107,.4);
+  pointer-events: none; letter-spacing: 4px; white-space: nowrap;
+}
+.pb-banner-anim { animation: pbBannerPop 1.8s ease-out forwards; }
+@keyframes pbBannerPop {
+  0%   { opacity: 0; transform: translate(-50%, -50%) scale(.6); }
+  15%  { opacity: 1; transform: translate(-50%, -50%) scale(1.08); }
+  25%  { transform: translate(-50%, -50%) scale(1); }
+  80%  { opacity: 1; }
+  100% { opacity: 0; transform: translate(-50%, -60%) scale(1); }
+}
+.pb-controls {
+  display: flex; align-items: center; gap: 10px; margin-top: 10px;
+  flex-wrap: wrap;
+}
+.pb-speed { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--muted); }
+.pb-pos { font-size: 12px; color: var(--muted); min-width: 70px; text-align: right; }
+#pbProgress { accent-color: var(--accent); min-width: 140px; }
+.rep-ev.ev-follow { background: var(--accent-soft) !important; outline: 1px solid var(--accent-border); }
+
 /* ---------------- Toast ---------------- */
 .toast {
   position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);

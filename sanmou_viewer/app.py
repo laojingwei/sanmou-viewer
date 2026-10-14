@@ -14,7 +14,7 @@ from pathlib import Path
 
 from flask import Flask, jsonify, request, send_file, send_from_directory
 
-from . import battles, config, db, exporter, labels
+from . import battle_reports, battles, config, db, exporter, labels
 
 APP_DIR = config.APP_DIR
 STATIC_DIR = APP_DIR / "static"
@@ -351,6 +351,46 @@ def api_battle_raw():
             "size": dst.stat().st_size,
         }
     )
+
+
+# ---------------------------------------------------------------- 战斗详情（回合明细）
+
+@app.get("/api/battle_reports")
+def api_battle_reports():
+    """列出所有有回合明细（1008 全量战报）的战斗。"""
+    try:
+        res = battle_reports.list_reports()
+        return ok(res)
+    except Exception as exc:  # noqa: BLE001
+        return fail(f"扫描战斗详情失败：{exc}")
+
+
+@app.post("/api/battle_reports/detail")
+def api_battle_report_detail():
+    """读取一份报告的完整回合事件流。"""
+    body = request.get_json(silent=True) or {}
+    rid = body.get("id")
+    if not rid:
+        return fail("缺少 id 参数")
+    max_events = int(body.get("max_events") or 0)
+    try:
+        detail = battle_reports.read_report_by_rid(rid, max_events=max_events)
+    except FileNotFoundError as exc:
+        return fail(str(exc), 404)
+    except Exception as exc:  # noqa: BLE001
+        return fail(f"读取报告失败：{exc}")
+    return ok(detail)
+
+
+@app.post("/api/battle_reports/lookup")
+def api_battle_report_lookup():
+    """按战斗 ID 查找有明细的报告（供概要列表跳转）。"""
+    body = request.get_json(silent=True) or {}
+    bid = str(body.get("battle_id") or "").strip()
+    if not bid:
+        return fail("缺少 battle_id 参数")
+    hits = battle_reports.find_reports_by_battle(bid)
+    return ok({"battle_id": bid, "count": len(hits), "reports": hits})
 
 
 @app.get("/api/settings")
