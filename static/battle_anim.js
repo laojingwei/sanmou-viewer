@@ -56,6 +56,7 @@ const BattleAnim = (function () {
     num: 280,        // 伤害/治疗数字（首笔）
     numRapid: 190,   // 连续输出的后续笔
     state: 120,      // 状态逐条（属性/增减益/异常）
+    proc: 560,       // 触发类效果（攻心/奇谋/会心/连击…）
     dodge: 480,      // 闪避
     death: 1100,     // 阵亡
     ret: 460,        // 归位
@@ -152,7 +153,6 @@ const BattleAnim = (function () {
     oneShot: false,         // 「下一幕」模式：只演这一幕
     autoNext: false,        // 自动连播下一回合
     shake: null,            // 屏幕震动 { amp, t, dur }
-    flash: null,            // 全屏闪光 { t, dur, alpha, color }
     zoom: null,             // 镜头推近 { t, dur, amount }
     hitStop: 0,             // 打击顿帧剩余时间（真实毫秒）
   };
@@ -162,10 +162,6 @@ const BattleAnim = (function () {
     const cur = S.shake;
     const base = (cur && cur.t > 0) ? cur.amp * 0.55 : 0;
     S.shake = { amp: Math.max(amp, base), t: dur, dur };
-  }
-  /** 全屏闪光（命中/战法/阵亡的冲击感） */
-  function flash(alpha, dur, color) {
-    S.flash = { t: dur, dur, alpha, color: color || '#cfd6dd' };
   }
   /** 镜头推近（战法发动时） */
   function zoom(amount, dur) {
@@ -558,6 +554,23 @@ const BattleAnim = (function () {
         continue;
       }
 
+      /* ---------- 触发类效果：攻心 / 奇谋 / 会心 / 连击 / 追加等 ----------
+         这些是"某效果被触发"的瞬间，是战斗里最值得展示的信息之一，
+         用独立的 proc 拍呈现（⚡ 飘字 + 字幕），不与普通状态混在一起。 */
+      if (eid === 238 || eid === 216 || eid === 242 || eid === 243 ||
+          /触发(攻心|奇谋|会心|连击|追加|反击|暴击)/.test(desc)) {
+        const k = keyOf(ev.teamId, ev.heroId);
+        // 从描述里提炼触发名，如「触发奇谋, 奇谋伤害为150%」→ 奇谋
+        let name = (desc.match(/触发\s*([^\s,，,]+)/) || [])[1] || '';
+        name = name.replace(/[【】「」]/g, '').slice(0, 8);
+        const extra = (desc.match(/[\d.]+%/) || [])[0] || '';
+        push({
+          t: 'proc', dur: DUR.proc, key: k, text: name || '触发',
+          detail: extra, ev, evSeq: ev.seq,
+        });
+        continue;
+      }
+
       /* ---------- 状态：施加 / 叠加 / 消失 —— 逐条独立成拍 ---------- */
       if ([213, 214, 215, 247, 248, 209, 210, 252, 253, 249, 218, 242, 226].includes(eid)) {
         const k = keyOf(ev.teamId, ev.heroId);
@@ -676,7 +689,7 @@ const BattleAnim = (function () {
       if (u.dead) { u.x = u.baseX; }
     }
     S.fx = []; S.floats = []; S.spotlight = null; S.hit = null; S.deathFx = null;
-    S.shake = null; S.flash = null; S.zoom = null; S.hitStop = 0;
+    S.shake = null; S.zoom = null; S.hitStop = 0;
     S.feedLines = [];
     renderFeed();
     setCaption('');
@@ -813,7 +826,6 @@ const BattleAnim = (function () {
     if (a.t === 'end') {
       const d = String(a.ev.desc || '');
       SFX.play('end');
-      flash(0.015, 380, '#e6d9a8');
       showBanner(/攻方胜利/.test(d) ? '攻方胜利！' : /守方胜利/.test(d) ? '守方胜利！' : d);
       return;
     }
@@ -873,7 +885,6 @@ const BattleAnim = (function () {
         SFX.play('cast', fxStyleOf(b.skill, b.arms));
         zoom(0.055, 700);
         shake(1.3, 340);
-        flash(0.014, 220, u.side === 'atk' ? '#8fb6e0' : '#e0a0a0');
         if (b.passive) setCaption(`${nm(u)} 触发【${b.skill}】`);
         else { showSkillBanner(b.skill, u.side); setCaption(`${nm(u)} 发动战法【${b.skill}】`); }
         // 前压动作：向敌方方向略进（远程施法也有位置变化；近战已贴身则不前压）
@@ -943,7 +954,6 @@ const BattleAnim = (function () {
         SFX.play('hit', b.style);
         S.hit = { key: b.key, t: 280 };
         shake(1.5, 200);
-        flash(0.010, 130, '#cfd6dd');
         S.hitStop = Math.max(S.hitStop, 95);   // 顿帧：命中瞬间的时间凝滞
         break;
       }
@@ -954,7 +964,20 @@ const BattleAnim = (function () {
         if (!u) break;
         spawnImpact(u, true);
         SFX.play('heal');
-        flash(0.006, 170, '#8fd6ae');
+        break;
+      }
+
+      /* ---------- 触发类效果：攻心 / 奇谋 / 会心 / 连击… ---------- */
+      case 'proc': {
+        const u = S.units[b.key];
+        if (!u) break;
+        const name = b.text || '触发';
+        // 更醒目的表现：金色扩散环 + 大号飘字 + 字幕
+        S.fx.push({ kind: 'procring', key: b.key, t: 0, dur: 620 });
+        addFloat(u, '⚡' + name + (b.detail ? ' ' + b.detail : ''), 'proc', true);
+        setCaption(`${nm(u)} 触发【${name}】${b.detail ? ' ' + b.detail : ''}`);
+        pushFeed('proc', `${nm(u)} 触发${name}${b.detail ? ' ' + b.detail : ''}`);
+        if (S.onHighlight && b.evSeq != null) S.onHighlight(b.evSeq);
         break;
       }
 
@@ -965,7 +988,6 @@ const BattleAnim = (function () {
         const k = b.kind;
         const txt = b.text || '';
         const ICON = { buff: '↑', debuff: '↓', func: '🛡', abnormal: '◆', control: '✦', status: '◆' };
-        if (k === 'proc') { addFloat(u, '⚡' + (txt || '触发'), 'buff', true); setCaption(`${nm(u)} 触发${txt || '效果'}`); break; }
         if (k === 'fade') {
           // 效果消失 / 被清除：摘掉图标
           const removed = removeBuff(u, txt);
@@ -982,10 +1004,9 @@ const BattleAnim = (function () {
         }[k] || '状态变化';
         pushBuff(u, txt, { up: k === 'buff' || k === 'func', kind: k });
         // 状态结算不发声（高频事件，逐行加音效会很吵）
-        // 只有重要状态（控制/异常/功能增益）才飘字提示；普通属性变化以图标+字幕呈现
-        if (k === 'control' || k === 'abnormal' || k === 'func') {
-          addFloat(u, (ICON[k] || '') + txt, k, true);
-        }
+        // 所有状态都飘字（让玩家看到属性/增益/减益的实时变化），
+        // 由 addFloat 内部的同名节流控制频率，避免连续叠加时糊成一片。
+        addFloat(u, (ICON[k] || '') + txt, k, true);
         setCaption(`${nm(u)} ${kindLabel}【${txt}】`);
         break;
       }
@@ -1069,7 +1090,6 @@ const BattleAnim = (function () {
         S.deathFx = { key: b.key, t: DUR.death };
         SFX.play('death');
         shake(2.3, 380);
-        flash(0.016, 240, '#b9c2d6');
         zoom(0.03, 600);
         S.hitStop = Math.max(S.hitStop, 200);   // 阵亡顿帧更久，突出沉重感
         addFloat(u, '阵亡', 'death');
@@ -1169,6 +1189,16 @@ const BattleAnim = (function () {
   }
 
   function addFloat(u, text, kind, small) {
+    // 节流：同一武将的同一条文本在 900ms 内只飘一次。
+    // 状态常被连续叠加/刷新（同一秒内可能几十次），若不节流会糊成一片；
+    // 但不同状态名、不同武将之间互不影响，所以信息不会丢。
+    if (small) {
+      const now = performance.now();
+      u._floatAt = u._floatAt || {};
+      const last = u._floatAt[text] || 0;
+      if (now - last < 900) return;
+      u._floatAt[text] = now;
+    }
     S.floats.push({
       key: u.key, text, kind, small: !!small,
       t: 0, dur: small ? 1600 : 1400, ox: (Math.random() - 0.5) * 26,
@@ -1237,7 +1267,6 @@ const BattleAnim = (function () {
     if (S.hit) { S.hit.t -= dt; if (S.hit.t <= 0) S.hit = null; }
     if (S.deathFx) { S.deathFx.t -= dt; if (S.deathFx.t <= 0) S.deathFx = null; }
     if (S.shake) { S.shake.t -= dt; if (S.shake.t <= 0) S.shake = null; }
-    if (S.flash) { S.flash.t -= dt; if (S.flash.t <= 0) S.flash = null; }
     if (S.zoom) { S.zoom.t -= dt; if (S.zoom.t <= 0) S.zoom = null; }
   }
 
@@ -1282,15 +1311,6 @@ const BattleAnim = (function () {
 
     ctx.restore();
 
-    // 全屏闪光（不受震动影响，快速衰减）
-    if (S.flash && S.flash.t > 0) {
-      const k = S.flash.t / S.flash.dur;
-      ctx.save();
-      ctx.globalAlpha = S.flash.alpha * k * k;
-      ctx.fillStyle = S.flash.color;
-      ctx.fillRect(0, 0, W, H);
-      ctx.restore();
-    }
   }
 
   /** 战场：地面 + 氛围光（绘制范围外扩，避免镜头震动时露边） */
@@ -1801,6 +1821,36 @@ const BattleAnim = (function () {
           ctx.restore();
           break;
         }
+        case 'procring': {
+          // 触发类效果：金色扩散双环 + 上浮光点，比普通状态更醒目
+          if (!u) break;
+          ctx.save();
+          ctx.globalAlpha = (1 - k) * 0.9;
+          ctx.beginPath();
+          ctx.arc(u.x, u.y, 30 + k * 26, 0, Math.PI * 2);
+          ctx.strokeStyle = '#ffd76b';
+          ctx.lineWidth = 3;
+          ctx.shadowColor = '#ffd76b';
+          ctx.shadowBlur = 14;
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.arc(u.x, u.y, 22 + k * 14, 0, Math.PI * 2);
+          ctx.strokeStyle = 'rgba(255,245,200,.85)';
+          ctx.lineWidth = 1.6;
+          ctx.stroke();
+          ctx.shadowBlur = 0;
+          // 上浮光点
+          for (let i = 0; i < 6; i++) {
+            const ang = (Math.PI * 2 / 6) * i + k * 0.8;
+            const rr = 26 + k * 20;
+            ctx.beginPath();
+            ctx.arc(u.x + Math.cos(ang) * rr, u.y + Math.sin(ang) * rr * 0.7 - k * 14, 2.4, 0, Math.PI * 2);
+            ctx.fillStyle = '#ffe9a8';
+            ctx.fill();
+          }
+          ctx.restore();
+          break;
+        }
         default: break;
       }
     }
@@ -1809,29 +1859,35 @@ const BattleAnim = (function () {
   /** 飘字层 */
   function drawFloats(ctx) {
     const slot = {};
+    // 同一武将最多同时显示 9 条（3 列 × 3 行），多出的丢弃，避免糊成一团
+    const MAX_PER_UNIT = 9;
     for (const f of S.floats) {
       const u = S.units[f.key];
       if (!u) continue;
       slot[f.key] = (slot[f.key] || 0) + 1;
       const idx = slot[f.key] - 1;
+      if (idx >= MAX_PER_UNIT) continue;
       const k = clamp(f.t / f.dur, 0, 1);
-      const rise = f.small ? 26 : 42;
-      // 从状态图标上方开始飘，避免与头顶图标重叠
-      const y = u.y - 76 - k * rise - Math.floor(idx / 3) * 15;
+      const rise = f.small ? 22 : 42;
+      // 从状态图标上方起飘，并做上限约束：不让飘字越过顶部血条区（y≈60）
+      let y = u.y - 72 - k * rise - Math.floor(idx / 3) * 14;
+      if (y < 62) y = 62 + Math.random() * 4;
       const x = u.x + f.ox + (idx % 3 === 1 ? -30 : idx % 3 === 2 ? 30 : 0);
       const alpha = k < 0.12 ? k / 0.12 : (k > 0.7 ? (1 - k) / 0.3 : 1);
 
       // 飘字颜色完全由【类型】决定（伤害=红、治疗=绿、增益/减益/异常/控制各按类型），
       // 与数值大小无关——0 值同样用所属类型的颜色。
-      let color = C.dmg, size = f.small ? 12 : 18;
+      let color = C.dmg, size = f.small ? 11 : 18;
       const text = f.text;
       if (f.kind === 'heal') { color = C.heal; }
-      else if (f.kind === 'buff') { color = C.buff; size = 12; }
-      else if (f.kind === 'func') { color = '#7fd8ff'; size = 12; }
-      else if (f.kind === 'debuff') { color = C.debuff; size = 12; }
-      else if (f.kind === 'abnormal') { color = C.status; size = 12; }
-      else if (f.kind === 'control') { color = '#ff6bd6'; size = 13; }
-      else if (f.kind === 'status') { color = C.status; size = 12; }
+      else if (f.kind === 'proc') { color = C.gold; size = 12; }   // 触发类：金色
+      else if (f.kind === 'buff') { color = C.buff; size = 11; }
+      else if (f.kind === 'func') { color = '#7fd8ff'; size = 11; }
+      else if (f.kind === 'debuff') { color = C.debuff; size = 11; }
+      else if (f.kind === 'abnormal') { color = C.status; size = 11; }
+      else if (f.kind === 'control') { color = '#ff6bd6'; size = 12; }
+      else if (f.kind === 'status') { color = C.status; size = 11; }
+      else if (f.kind === 'shield') { color = '#7fd8ff'; size = 11; }
       else if (f.kind === 'dodge') { color = '#cbd5e1'; size = 16; }
       else if (f.kind === 'death') { color = '#e5e7eb'; size = 18; }
 
@@ -2199,7 +2255,8 @@ const BattleAnim = (function () {
     if (!box) return;
     box.innerHTML = S.feedLines.map((l) => {
       const arrow = l.kind === 'dmg' ? '🔻' : l.kind === 'heal' ? '🟢'
-        : l.kind === 'death' ? '💀' : l.kind === 'cast' ? '⚡' : '•';
+        : l.kind === 'death' ? '💀' : l.kind === 'cast' ? '⚡'
+        : l.kind === 'proc' ? '✨' : '•';
       const cls = 'pb-feed-line feed-' + (l.kind === 'death' ? 'dmg' : l.kind);
       return `<div class="${cls}"><span class="pf-arrow">${arrow}</span><span class="pf-text">${esc(l.text)}</span></div>`;
     }).join('');
