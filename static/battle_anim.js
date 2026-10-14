@@ -17,6 +17,8 @@ const BattleAnim = (function () {
 
   const FIELD_W = 960;
   const FIELD_H = 420;
+  /** 画布顶部为飘字预留的额外高度（飘字可飘出战场上方，不被裁掉） */
+  const TOP_PAD = 80;
 
   const C = {
     atk: '#4d8dff', atkSoft: 'rgba(77,141,255,.20)', atkDark: '#2c4a7c',
@@ -253,6 +255,11 @@ const BattleAnim = (function () {
     S.data = data;
     S.canvas = document.getElementById('pbStage');
     S.ctx = S.canvas ? S.canvas.getContext('2d') : null;
+    // 画布高度 = 战场高度 + 顶部飘字预留区，让密集飘字有纵向空间展开
+    if (S.canvas) {
+      S.canvas.width = FIELD_W;
+      S.canvas.height = FIELD_H + TOP_PAD;
+    }
 
     // 建单位
     S.units = {};
@@ -1276,12 +1283,15 @@ const BattleAnim = (function () {
     const ctx = S.ctx;
     if (!ctx) return;
     const W = FIELD_W, H = FIELD_H;
+    const CH = H + TOP_PAD;                     // 画布实际高度（顶部留出飘字空间）
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.clearRect(0, 0, W, H);
+    ctx.clearRect(0, 0, W, CH);
     ctx.restore();
 
     ctx.save();
+    // 战场整体下移 TOP_PAD，顶部空出来给飘字用
+    ctx.translate(0, TOP_PAD);
 
     // 镜头推近（战法发动的冲击感）
     if (S.zoom && S.zoom.t > 0) {
@@ -1313,15 +1323,16 @@ const BattleAnim = (function () {
 
   }
 
-  /** 战场：地面 + 氛围光（绘制范围外扩，避免镜头震动时露边） */
+  /** 战场：地面 + 氛围光（绘制范围外扩，覆盖顶部飘字预留区，避免露边） */
   function drawGround(ctx, W, H) {
     const pad = 40;
-    const g = ctx.createLinearGradient(0, -pad, 0, H + pad);
-    g.addColorStop(0, '#151a22');
-    g.addColorStop(0.5, '#1d2430');
+    const g = ctx.createLinearGradient(0, -pad - TOP_PAD, 0, H + pad);
+    g.addColorStop(0, '#12161d');
+    g.addColorStop(0.35, '#151a22');
+    g.addColorStop(0.62, '#1d2430');
     g.addColorStop(1, '#131820');
     ctx.fillStyle = g;
-    ctx.fillRect(-pad, -pad, W + pad * 2, H + pad * 2);
+    ctx.fillRect(-pad, -pad - TOP_PAD, W + pad * 2, H + pad * 2 + TOP_PAD);
 
     // 中央沙场
     const cg = ctx.createRadialGradient(W / 2, H * 0.55, 40, W / 2, H * 0.55, W * 0.5);
@@ -1859,8 +1870,8 @@ const BattleAnim = (function () {
   /** 飘字层 */
   function drawFloats(ctx) {
     const slot = {};
-    // 同一武将最多同时显示 9 条（3 列 × 3 行），多出的丢弃，避免糊成一团
-    const MAX_PER_UNIT = 9;
+    // 同一武将最多同时显示 12 条（3 列 × 4 行）
+    const MAX_PER_UNIT = 12;
     for (const f of S.floats) {
       const u = S.units[f.key];
       if (!u) continue;
@@ -1868,11 +1879,16 @@ const BattleAnim = (function () {
       const idx = slot[f.key] - 1;
       if (idx >= MAX_PER_UNIT) continue;
       const k = clamp(f.t / f.dur, 0, 1);
-      const rise = f.small ? 22 : 42;
-      // 从状态图标上方起飘，并做上限约束：不让飘字越过顶部血条区（y≈60）
-      let y = u.y - 72 - k * rise - Math.floor(idx / 3) * 14;
-      if (y < 62) y = 62 + Math.random() * 4;
-      const x = u.x + f.ox + (idx % 3 === 1 ? -30 : idx % 3 === 2 ? 30 : 0);
+      // 飘动范围放大：状态类上飘 46px、伤害类上飘 72px，行间距也拉开；
+      // 画布顶部已预留 TOP_PAD 的空间，飘字可以充分向上展开而不被裁掉。
+      const rise = f.small ? 46 : 72;
+      const rowGap = f.small ? 24 : 28;
+      const row = Math.floor(idx / 3);
+      // 起点：从状态图标上方开始（顶部武将也留出足够间隙，避免与顶部血条重叠）
+      const y = u.y - 66 - k * rise - row * rowGap;
+      // 列间距加大，避免左右两列贴在一起
+      const colX = [0, -44, 44][idx % 3];
+      const x = u.x + f.ox + colX;
       const alpha = k < 0.12 ? k / 0.12 : (k > 0.7 ? (1 - k) / 0.3 : 1);
 
       // 飘字颜色完全由【类型】决定（伤害=红、治疗=绿、增益/减益/异常/控制各按类型），
